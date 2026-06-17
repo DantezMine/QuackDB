@@ -1,0 +1,9 @@
+[package]
+name = "QuackDB"
+version = "0.1.0"
+lang = "C11"
+include = ["include"]
+kind = "staticlib"
+compiler-options = ["--no-warnings","-Wno-unused-variable"]
+
+[dependencies]
