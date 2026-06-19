@@ -48,8 +48,7 @@ void* Block_Create(uint32_t blk_size, float PCTFREE, float PCTUSED,
  * Expects the entry to contain the same number of attributes
  * as declared in block creation.
 */
-int Block_Insert(void *block, struct Block_Field *entry_values);
-
+int Block_Insert_Entry(void *block, struct Block_Field *entry_values);
 
 /*
  * Return array of entries. Values are stored in the same memory 
@@ -58,19 +57,21 @@ int Block_Insert(void *block, struct Block_Field *entry_values);
 */ 
 struct Block_Field* Block_Get(void *block, int row_index);
 
+void Block_Delete_Entry(void *block, int row_index);
+
 /*
  * Write the block to storage (file),
  * free from memory.
 */
 void Block_Write(void *block);
 
-void Block_Free(void *block);
-
 /*
  * Read the block from storage (file)
  * into memory.
 */
 void* Block_Read(char *blk_name);
+
+void Block_Remove(void *block);
 
 int Is_Attr_Width_Fixed(enum Block_Attribute_t attr_type);
 
