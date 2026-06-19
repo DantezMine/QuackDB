@@ -14,6 +14,10 @@
 // Returns offset to start of schema table
 #define BLOCK_SCHEMA_TABLE(block) ( *(((uint8_t*)block)+12) )
 #define BLOCK_ROW_TABLE(block) ( *(((uint8_t*)block)+16) )
+#define BLOCK_SIZE(block) ( *(uint32_t*)block )
+
+// First entry in the block, acquired through footer at fixed end of block.
+#define ENTRY_FIRST(block) BLOCK_SIZE(block)-4-(*(uint32_t*)ADDR(block, BLOCK_SIZE(block)-4) & 0xfffffffe)
 
 #define ENTRY_FREE(entry) ( *(uint32_t*)(((uint8_t*)entry)-4) & 0x1)
 #define ENTRY_SIZE(entry) ( *(uint32_t*)(((uint8_t*)entry)-4) & 0xfffffffe)
@@ -25,6 +29,7 @@
 #define ENTRY_PREV_SIZE(entry) ( *(uint32_t*)(((uint8_t*)entry)+ENTRY_SIZE(entry)+8) & 0xfffffffe)
 
 #define TABLE_ROW_INDX(block)   ( *(uint32_t*)ADDR(block,BLOCK_ROW_TABLE(block)-4) ) 
+#define TABLE_ROW_GET(block, indx)  ( *(uint32_t*)ADDR(block,BLOCK_ROW_TABLE(block)+4*indx) )
 
 #define SPLIT_MARGIN 24
 
@@ -103,18 +108,16 @@ int Is_Attr_Width_Fixed(enum Block_Attribute_t attr_type) {
     }
 }
 
-// The following schema members must be freed:
-//  - attr_names
-//  - attr_types
-//  - var_sizes
 struct Block_Schema Block_Get_Schema(void *block) {
     int table_schema = BLOCK_SCHEMA_TABLE(block);
     int attr_count = *(uint8_t*)ADDR(block, table_schema-4);
+    void *schema_arena = malloc(attr_count*16);
     struct Block_Schema schema = {
+        .arena = schema_arena,
         .attr_count = attr_count,
-        .attr_types = malloc(attr_count*4),
-        .attr_names = malloc(attr_count*4),
-        .var_sizes = malloc(attr_count*4),
+        .attr_types = schema_arena,
+        .attr_names = (void*)((char*)schema_arena+attr_count*4),
+        .var_sizes = (void*)((char*)schema_arena+attr_count*8),
     };
 
     int pos = table_schema;
@@ -139,12 +142,12 @@ int Block_Insert(void *block, struct Block_Field *entry_values) {
     
     int row_indx = *(uint32_t*)ADDR(block, table_row-4);
 
-    // adjust last entry
+    // adjust last entry to make space for Row table
     uint32_t last_header = BLOCK_ROW_TABLE(block) + 4*TABLE_ROW_INDX(block);
     uint32_t free_size = ENTRY_SIZE(ADDR(block, last_header+4));
 
-    WRITE_W(block, last_header+4, free_size-4);
-    WRITE_W(block, last_header+free_size+4, free_size-4);
+    WRITE_W(block, last_header+4,           free_size-4 | 0x1);
+    WRITE_W(block, last_header+free_size+4, free_size-4 | 0x1);
     WRITE_W(block, BLOCK_ROW_TABLE(block)-4, row_indx+1);
     
     // compute entry size
@@ -159,7 +162,7 @@ int Block_Insert(void *block, struct Block_Field *entry_values) {
     int entry_size = entry_offs & 0x1 ? entry_offs+1 : entry_offs; // align to even bytes
     
     // find and allocate entry in block
-    int free_pos = Find_Free_Entry(block, last_header+4, entry_size);
+    int free_pos = Find_Free_Entry(block, ENTRY_FIRST(block), entry_size);
     int entry_pos = Allocate_Entry(block, ADDR(block, free_pos), entry_size);
 
     // write entry into Row table
@@ -193,17 +196,9 @@ static int Find_Free_Entry(void *block, uint32_t start, int entry_size) {
     uint32_t curr_pos  = start;
     uint32_t curr_size = ENTRY_SIZE(ADDR(block, curr_pos));
 
-    uint32_t last_entry = BLOCK_ROW_TABLE(block) + 4*TABLE_ROW_INDX(block) + 4;
-    
     while(curr_size < (uint32_t)entry_size+8 || !ENTRY_FREE(ADDR(block, curr_pos))) {
-        curr_pos -= ENTRY_PREV_SIZE(ADDR(block, curr_pos)) + 8;
+        curr_pos -= ENTRY_NEXT_SIZE(ADDR(block, curr_pos)) + 8;
         curr_size = ENTRY_SIZE(ADDR(block, curr_pos));
-        // TODO: Handle this case
-        // Out of bounds, requires new block
-        if (curr_pos <= last_entry) {
-            fprintf(stderr, "Find_Free_Entry:: Block out of memory");
-            return -1;
-        }
     }
     
     return curr_pos;
@@ -215,17 +210,70 @@ static int Allocate_Entry(void* block, void *entry, uint32_t target_size) {
     uint32_t free_pos = (uint32_t)(entry-block);
     uint32_t entry_pos;
     uint32_t entry_size;
-    if (target_size > free_size+8+SPLIT_MARGIN) {
+    if (free_size > target_size+8+SPLIT_MARGIN) {
         uint32_t split_size = free_size-target_size-8;
         entry_pos = free_pos + split_size + 8;
         entry_size = target_size;
-        WRITE_W(block, free_pos-4,  free_size | 0x1);
-        WRITE_W(block, entry_pos-8, free_size | 0x1);
+        WRITE_W(block, free_pos-4,  split_size | 0x1);
+        WRITE_W(block, entry_pos-8, split_size | 0x1);
     } else {
+        uint32_t last_entry = BLOCK_ROW_TABLE(block) + 4*TABLE_ROW_INDX(block) + 4; 
+        // TODO: Handle this case
+        // Out of bounds, requires new block
+        if (free_pos == last_entry) {
+            fprintf(stderr, "Find_Free_Entry:: Block out of memory");
+            return -1;
+        }
         entry_pos = free_pos;
         entry_size = free_size;
     }
     WRITE_W(block, entry_pos-4,          entry_size & ~0x1);
     WRITE_W(block, entry_pos+entry_size, entry_size & ~0x1);
     return entry_pos;
+}
+
+
+struct Block_Field* Block_Get(void *block, int row_index) {
+    uint32_t entry_pos = TABLE_ROW_GET(block, row_index);
+    struct Block_Schema schema = Block_Get_Schema(block);
+
+    int arena_size = 0;
+    int entry_offs = entry_pos;
+    for (int i=0; i<schema.attr_count; i++) {
+        enum Block_Attribute_t attr_type = schema.attr_types[i];
+        int fixed = Is_Attr_Width_Fixed(attr_type);
+        int field_size =  fixed ? Block_Attribute_t_Width[attr_type] : *(uint32_t*)ADDR(block, entry_offs);
+        
+        if (!fixed) {
+            entry_offs += 4;
+        }
+        entry_offs += field_size;
+        arena_size += field_size;
+    }
+
+    // Allocate space for return struct and the attribute values in one go
+    struct Block_Field *entry = malloc(sizeof(struct Block_Field)*schema.attr_count+arena_size);
+    void *arena = (uint8_t*)entry+sizeof(struct Block_Field)*schema.attr_count;
+
+    entry_offs = entry_pos;
+    for (int i=0; i<schema.attr_count; i++) {
+        enum Block_Attribute_t attr_type = schema.attr_types[i];
+        entry[i].attr_type = attr_type;
+        int fixed = Is_Attr_Width_Fixed(attr_type);
+        int field_size =  fixed ? Block_Attribute_t_Width[attr_type] : *(uint32_t*)ADDR(block, entry_offs);
+        
+        if (!fixed) {
+            entry[i].attr_width = field_size;
+            entry_offs += 4;
+        }
+        entry[i].value = arena;
+        memcpy(arena, ADDR(block, entry_offs), field_size);
+        arena      += field_size;
+        entry_offs += field_size;
+    }
+    return entry;
+}
+
+// TODO
+void Block_Free(void *block) {
 }

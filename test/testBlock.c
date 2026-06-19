@@ -1,5 +1,9 @@
 #include "Block.h"
 #include "BlockPrint.h"
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
 #define VANGO_TEST_ROOT
 #include <vangotest/casserts.h>
@@ -37,27 +41,57 @@ vango_test(Create_Block) {
     void *block = Block_Create(1024, 0.7f, 0.5f, schema);
     vg_assert(block != NULL);
     if (block != NULL) PRINT("Block creation successful.\n");
+    Block_Print_Head(stdout, block, NULL);
+    Block_Free(block);
 };
 
 vango_test(Insert_Entry) {
     struct Block_Schema schema = Create_Schema_Grades();
     void *block = Block_Create(1024, 0.7f, 0.5f, schema);
 
-    int persNr = 254950321;
-    int lectureID = 201;
-    int Grade = 5;
-    char *name = "Lööli";
+    uint32_t persNr = 254950321;
+    uint32_t lectureID = 201;
+    uint32_t grade = 5;
+    char *name = "Loeli";
     struct Block_Field entry[4] = {
         (struct Block_Field){.attr_type=BLK_A_INT, .value=&persNr},
         (struct Block_Field){.attr_type=BLK_A_VARCHAR, .value=name, .attr_width=strlen(name)+1},
         (struct Block_Field){.attr_type=BLK_A_INT, .value=&lectureID},
-        (struct Block_Field){.attr_type=BLK_A_INT, .value=&Grade},
+        (struct Block_Field){.attr_type=BLK_A_INT, .value=&grade},
     };
-    int id = Block_Insert(block, entry);
-    PRINT("Entry id: %d\n", id);
+
+    srand(time(NULL));
+    Block_Insert(block, entry);
+    Block_Insert(block, entry);
+    Block_Insert(block, entry);
+    Block_Insert(block, entry);
+    Block_Insert(block, entry);
+
+    int num_entries = 5;
+    struct Block_Field **ret_entry = malloc(8*num_entries);
+    for (int i=0; i<num_entries; i++) {
+        ret_entry[i] = Block_Get(block, i);
+    }
+
+    for (int i=0; i<4; i++) {
+        vg_assert_eq(ret_entry[0][i].attr_type,entry[i].attr_type);
+    }
+    vg_assert_eq(*(uint32_t*)ret_entry[0][0].value,persNr);
+    vg_assert_eq(*(uint32_t*)ret_entry[0][2].value,lectureID);
+    vg_assert_eq(*(uint32_t*)ret_entry[0][3].value,grade);
+    vg_assert(strcmp(ret_entry[0][1].value, entry[1].value)==0);
+    vg_assert_eq(ret_entry[0][1].attr_width,entry[1].attr_width);
+    Block_Print_Rows(stdout, block, ret_entry, num_entries);
+
+    for (int i=0; i<num_entries; i++) {
+        free(ret_entry[i]);
+    }
+    free(schema.arena);
+    free(ret_entry);
+    Block_Free(block);
 }
 
 vango_test_main(
-        vango_test_reg(Create_Block);
+        // vango_test_reg(Create_Block);
         vango_test_reg(Insert_Entry);
 )

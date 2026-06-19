@@ -22,6 +22,7 @@ struct Block_Field {
 
 struct Block_Schema {
     int attr_count;
+    void *arena;
     enum Block_Attribute_t *attr_types;
     int *var_sizes; // ignored for fixed-width attributes.
     char **attr_names;
@@ -49,18 +50,33 @@ void* Block_Create(uint32_t blk_size, float PCTFREE, float PCTUSED,
 */
 int Block_Insert(void *block, struct Block_Field *entry_values);
 
+
+/*
+ * Return array of entries. Values are stored in the same memory 
+ * region as the returned pointer. Must free the returned pointer
+ * after use.
+*/ 
+struct Block_Field* Block_Get(void *block, int row_index);
+
 /*
  * Write the block to storage (file),
- * free from memory and return its name.
+ * free from memory.
 */
-char* Block_Write(void *block);
+void Block_Write(void *block);
 
 void Block_Free(void *block);
 
+/*
+ * Read the block from storage (file)
+ * into memory.
+*/
 void* Block_Read(char *blk_name);
 
 int Is_Attr_Width_Fixed(enum Block_Attribute_t attr_type);
 
+/*
+ * Must free the arena in the returned struct when done.
+*/
 struct Block_Schema Block_Get_Schema(void *block);
 
 #endif
