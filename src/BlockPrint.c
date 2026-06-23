@@ -50,7 +50,7 @@ struct Head_Cell_Data* Block_Print_Get_Header_Cells(struct Block_Schema *schema)
 }
 
 
-void Block_Print_Head(FILE *file, void *block, struct Head_Cell_Data *head) {
+void Block_Print_Head(FILE *file, Block *block, struct Head_Cell_Data *head) {
     struct Block_Schema schema = Block_Get_Schema(block);
     struct Head_Cell_Data *cells = head;
     if (head == NULL) {
@@ -106,7 +106,7 @@ void Block_Print_Head(FILE *file, void *block, struct Head_Cell_Data *head) {
 }
 
 
-void Block_Print_Rows(FILE *file, void *block, struct Block_Field **rows, int num_rows) {    
+void Block_Print_Rows(FILE *file, Block *block, struct Block_Field **rows, int num_rows) {    
     struct Block_Schema schema = Block_Get_Schema(block);
     struct Head_Cell_Data *head = Block_Print_Get_Header_Cells(&schema);
 
@@ -173,7 +173,7 @@ void Block_Print_Rows(FILE *file, void *block, struct Block_Field **rows, int nu
         out[4*width-1] = '\n';
         out += 4*width;
     }
-    out[4*width*num_rows] = '\0';
+    buf[4*width*num_rows] = '\0';
     fprintf(file, "%s\n", buf);
 
     free(buf);

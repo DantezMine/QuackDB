@@ -12,22 +12,23 @@
 #define ADDR(block, offs) ( ((uint8_t*)block)+offs )
 
 // Returns offset to start of schema table
-#define BLOCK_SCHEMA_TABLE(block)   ( *(((uint8_t*)block)+16) )
-#define BLOCK_ROW_TABLE(block)      ( *(((uint8_t*)block)+20) )
+#define BLOCK_SCHEMA_TABLE(block)   ( *(((uint8_t*)block)+20) )
+// Returns offset to start of row table
+#define BLOCK_ROW_TABLE(block)      ( *(((uint8_t*)block)+24) )
 #define BLOCK_SIZE(block)   ( *(uint32_t*)block )
 #define BLOCK_USED(block)   ( *(uint32_t*)((uint8_t*)block+12) )
 
 // First entry in the block, acquired through footer at fixed end of block.
-#define ENTRY_FIRST(block) BLOCK_SIZE(block)-4-(*(uint32_t*)ADDR(block, BLOCK_SIZE(block)-4) & 0xfffffffe)
+#define ENTRY_FIRST(block) BLOCK_SIZE(block)-4-(*(uint32_t*)ADDR(block, BLOCK_SIZE(block)-4) & 0xfffffffc)
 
 #define ENTRY_FREE(entry) ( *(uint32_t*)(((uint8_t*)entry)-4) & 0x1)
-#define ENTRY_SIZE(entry) ( *(uint32_t*)(((uint8_t*)entry)-4) & 0xfffffffe)
+#define ENTRY_SIZE(entry) ( *(uint32_t*)(((uint8_t*)entry)-4) & 0xfffffffc)
 
 #define ENTRY_NEXT_FREE(entry) ( *(uint32_t*)(((uint8_t*)entry)-8) & 0x1)
-#define ENTRY_NEXT_SIZE(entry) ( *(uint32_t*)(((uint8_t*)entry)-8) & 0xfffffffe)
+#define ENTRY_NEXT_SIZE(entry) ( *(uint32_t*)(((uint8_t*)entry)-8) & 0xfffffffc)
 
 #define ENTRY_PREV_FREE(entry) ( *(uint32_t*)(((uint8_t*)entry)+ENTRY_SIZE(entry)+4) & 0x1)
-#define ENTRY_PREV_SIZE(entry) ( *(uint32_t*)(((uint8_t*)entry)+ENTRY_SIZE(entry)+4) & 0xfffffffe)
+#define ENTRY_PREV_SIZE(entry) ( *(uint32_t*)(((uint8_t*)entry)+ENTRY_SIZE(entry)+4) & 0xfffffffc)
 
 #define TABLE_ROW_INDX(block)       ( *(uint32_t*)ADDR(block,BLOCK_ROW_TABLE(block)-4) ) 
 #define TABLE_ROW_GET(block, indx)  ( *(uint32_t*)ADDR(block,BLOCK_ROW_TABLE(block)+4*indx) )
@@ -35,27 +36,27 @@
 #define SPLIT_MARGIN 24
 
 
-static int Find_Free_Entry(void *block, uint32_t start, int entry_size);
-static int Allocate_Entry(void *block, uint32_t entry, uint32_t target_size);
-static void Deallocate_Entry(void *block, uint32_t entry);
+static int Find_Free_Entry(Block *block, uint32_t start, int entry_size);
+static int Allocate_Entry(Block *block, uint32_t entry, uint32_t target_size);
+static void Deallocate_Entry(Block *block, uint32_t entry);
 
-void* Block_Create(uint32_t blk_size, float PCTFREE, float PCTUSED,
+Block* Block_Create(Block *block, uint32_t block_size, uint32_t block_id, float PCTFREE, float PCTUSED,
                     struct Block_Schema schema) {
-    blk_size &= ~0x1; // force two-byte alignment
-    void *block = malloc(blk_size);
+    block_size &= ~0x3; // force four-byte alignment
 
-
-    WRITE_W(block, 0, blk_size);
-    WRITE_W(block, 4, TO_W(PCTFREE));
-    WRITE_W(block, 8, TO_W(PCTUSED));
-    WRITE_W(block, 12, 0); // Used bytes
+    block->block_size = block_size;
+    block->block_id = 0;
+    block->PCTFREE = TO_W(PCTFREE);
+    block->PCTUSED = TO_W(PCTUSED);
+    block->used = 0;
 
     // create directories table
-    uint32_t table_dir    = 16;
+    uint32_t table_dir    = 20;
+    // + 8 for table offsets and + 4 for attribute count
     uint32_t table_schema = table_dir+12;
 
     // write schema into directory
-    // table_schema: holds first byte after schema table
+    // invariant: table_schema holds first byte after schema table
     WRITE_W(block, table_schema-4, (uint32_t)schema.attr_count);
     for (int i=0; i<schema.attr_count; i++) {
         int len = strlen(schema.attr_names[i]);
@@ -82,15 +83,15 @@ void* Block_Create(uint32_t blk_size, float PCTFREE, float PCTUSED,
     uint32_t table_row = table_schema + 4;
 
     // write start of directories into directory table
-    WRITE_W(block, table_dir  , table_dir+12);
-    WRITE_W(block, table_dir+4, table_row);
+    block->table_schema = table_dir+12;
+    block->table_row = table_row;
 
     // Track row directory index
     WRITE_W(block, table_row-4, (uint32_t)0);
 
 
     // Create large free entry
-    uint32_t footer = blk_size-4;
+    uint32_t footer = block_size-4;
     uint32_t header = BLOCK_ROW_TABLE(block) + 4*TABLE_ROW_INDX(block);
     uint32_t free_size = footer-header-4;
     if (free_size % 2 == 1) {
@@ -111,8 +112,8 @@ int Is_Attr_Width_Fixed(enum Block_Attribute_t attr_type) {
     }
 }
 
-struct Block_Schema Block_Get_Schema(void *block) {
-    int table_schema = BLOCK_SCHEMA_TABLE(block);
+struct Block_Schema Block_Get_Schema(Block *block) {
+    int table_schema = block->table_schema;
     int attr_count = *(uint8_t*)ADDR(block, table_schema-4);
     void *schema_arena = malloc(attr_count*16);
     struct Block_Schema schema = {
@@ -139,8 +140,13 @@ struct Block_Schema Block_Get_Schema(void *block) {
 }
 
 
-int Block_Insert_Entry(void *block, struct Block_Field *entry_values) {
-    struct Block_Schema schema = Block_Get_Schema(block);
+int Block_Insert_Entry(Block *block, struct Block_Field *entry_values, struct Block_Schema *schema_maybe) {
+    struct Block_Schema schema;
+    if (schema_maybe == NULL) {
+        schema = Block_Get_Schema(block);
+    } else {
+        schema = *schema_maybe;
+    }
     int table_row = BLOCK_ROW_TABLE(block);
     
     int row_indx = *(uint32_t*)ADDR(block, table_row-4);
@@ -203,7 +209,7 @@ int Block_Insert_Entry(void *block, struct Block_Field *entry_values) {
  * but basically required for a bottom-up block approach. Alternatively, would
  * create Row table of fixed size and start from top.
 */
-static int Find_Free_Entry(void *block, uint32_t start, int entry_size) {
+static int Find_Free_Entry(Block *block, uint32_t start, int entry_size) {
     uint32_t curr_pos  = start;
     uint32_t curr_size = ENTRY_SIZE(ADDR(block, curr_pos));
 
@@ -216,7 +222,7 @@ static int Find_Free_Entry(void *block, uint32_t start, int entry_size) {
 }
 
 
-static int Allocate_Entry(void* block, uint32_t entry, uint32_t target_size) {
+static int Allocate_Entry(Block *block, uint32_t entry, uint32_t target_size) {
     uint32_t free_size = ENTRY_SIZE(ADDR(block, entry));
     uint32_t free_pos = entry;
     uint32_t entry_pos;
@@ -227,6 +233,7 @@ static int Allocate_Entry(void* block, uint32_t entry, uint32_t target_size) {
         entry_size = target_size;
         WRITE_W(block, free_pos-4,  split_size | 0x1);
         WRITE_W(block, entry_pos-8, split_size | 0x1);
+        WRITE_W(block, 12, BLOCK_USED(block)+entry_size);
     } else {
         uint32_t last_entry = BLOCK_ROW_TABLE(block) + 4*TABLE_ROW_INDX(block) + 4; 
         // Block is already full.
@@ -235,19 +242,20 @@ static int Allocate_Entry(void* block, uint32_t entry, uint32_t target_size) {
         }
         entry_pos = free_pos;
         entry_size = free_size;
+        WRITE_W(block, 12, BLOCK_USED(block)+entry_size+8);
     }
-    WRITE_W(block, 12, BLOCK_USED(block)+entry_size+8);
     WRITE_W(block, entry_pos-4,          entry_size & ~0x1);
     WRITE_W(block, entry_pos+entry_size, entry_size & ~0x1);
     return entry_pos;
 }
 
 
-static void Deallocate_Entry(void *block, uint32_t entry) {
+static void Deallocate_Entry(Block *block, uint32_t entry) {
     uint8_t *entry_ptr = ADDR(block, entry);
     uint32_t entry_size = ENTRY_SIZE(entry_ptr);
     WRITE_W(block, entry,            entry_size | 0x1);
     WRITE_W(block, entry+entry_size, entry_size | 0x1);
+    WRITE_W(block, 12, BLOCK_USED(block)-entry_size);
 
     // Recall: Next is up the block
     if (ENTRY_NEXT_FREE(entry_ptr)) {
@@ -259,6 +267,7 @@ static void Deallocate_Entry(void *block, uint32_t entry) {
         entry = free_pos;
         entry_size = free_size_new;
         entry_ptr = ADDR(block, entry);
+        WRITE_W(block, 12, BLOCK_USED(block)-8);
     }
     if (ENTRY_PREV_FREE(entry_ptr)) {
         uint32_t free_size = ENTRY_PREV_SIZE(entry_ptr);
@@ -267,12 +276,13 @@ static void Deallocate_Entry(void *block, uint32_t entry) {
         WRITE_W(block, entry+free_size_new, free_size_new | 0x1);
         entry_size = free_size_new;
         entry_ptr = ADDR(block, entry);
+        WRITE_W(block, 12, BLOCK_USED(block)-8);
    }
     return;
 }
 
 
-struct Block_Field* Block_Get(void *block, int row_index) {
+struct Block_Field* Block_Get(Block *block, int row_index) {
     uint32_t entry_pos = TABLE_ROW_GET(block, row_index);
     struct Block_Schema schema = Block_Get_Schema(block);
 
@@ -314,12 +324,42 @@ struct Block_Field* Block_Get(void *block, int row_index) {
 }
 
 
-void Block_Delete_Entry(void *block, int row_index) {
+void Block_Delete_Entry(Block *block, int row_index) {
     uint32_t entry_pos = TABLE_ROW_GET(block, row_index);
     Deallocate_Entry(block, entry_pos);
+    *(int32_t*)ADDR(block, BLOCK_ROW_TABLE(block)+4*row_index) = -1;
 }
 
-// TODO
-void Block_Remove(void *block) {
+void Block_Remove(Block *block) {
     free(block);
+}
+
+void Block_Write(Block *block) {
+    char *fname = malloc(20);
+    sprintf(fname, "blocks/%d.block", block->block_id);
+    FILE *out = fopen(fname, "w");
+    fwrite(block, 1, block->block_size, out);
+    fclose(out);
+}
+
+
+uint32_t Block_Read_Size(uint32_t id) {
+    char *fname = malloc(20);
+    sprintf(fname, "blocks/%d.block", id);
+    uint32_t size;
+    FILE *in = fopen(fname, "r");
+    fread(&size, 4, 1, in);
+    fclose(in);
+    return size;
+}
+
+void Block_Read(Block *block, uint32_t id, uint32_t size) {
+    char *fname = malloc(20);
+    sprintf(fname, "blocks/%d.block", id);
+    FILE *in = fopen(fname, "r");
+    if (fread(block, 1, size, in) != size) {
+        fprintf(stderr, "Block_Read:: Failed reading block %d\n", id);
+    }
+    fclose(in);
+    return;
 }

@@ -1,5 +1,6 @@
 #include "Block.h"
 #include "BlockPrint.h"
+#include "MManager.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +9,7 @@
 #define VANGO_TEST_ROOT
 #include <vangotest/casserts.h>
 
+#define MAX_MEMORY 4294967296
 
 // #define PRINT_ASSERTS
 
@@ -38,16 +40,27 @@ static struct Block_Schema Create_Schema_Grades() {
 
 vango_test(Create_Block) {
     struct Block_Schema schema = Create_Schema_Grades();
-    void *block = Block_Create(1024, 0.7f, 0.5f, schema);
+    void *block = malloc(1024);
+    Block_Create(block, 1024, 0, 0.7f, 0.5f, schema);
     vg_assert(block != NULL);
     if (block != NULL) PRINT("Block creation successful.\n");
-    Block_Print_Head(stdout, block, NULL);
+
+    FILE *out = stdout;
+#ifndef PRINT_ASSERTS
+    out = fopen("null/null.txt", "w");
+#endif
+    Block_Print_Head(out, block, NULL);
+#ifndef PRINT_ASSERTS
+    fclose(out);
+#endif
+
     Block_Remove(block);
 };
 
 vango_test(Insert_Entry) {
     struct Block_Schema schema = Create_Schema_Grades();
-    void *block = Block_Create(1024, 0.7f, 0.5f, schema);
+    void *block = malloc(1024);
+    Block_Create(block, 1024, 0, 0.7f, 0.5f, schema);
 
     uint32_t persNr = 254950321;
     uint32_t lectureID = 201;
@@ -60,11 +73,11 @@ vango_test(Insert_Entry) {
         (struct Block_Field){.attr_type=BLK_A_INT, .value=&grade},
     };
 
-    Block_Insert_Entry(block, entry);
-    Block_Insert_Entry(block, entry);
-    Block_Insert_Entry(block, entry);
-    Block_Insert_Entry(block, entry);
-    Block_Insert_Entry(block, entry);
+    Block_Insert_Entry(block, entry, &schema);
+    Block_Insert_Entry(block, entry, &schema);
+    Block_Insert_Entry(block, entry, &schema);
+    Block_Insert_Entry(block, entry, &schema);
+    Block_Insert_Entry(block, entry, &schema);
 
     int num_entries = 5;
     struct Block_Field **ret_entry = malloc(8*num_entries);
@@ -80,7 +93,15 @@ vango_test(Insert_Entry) {
     vg_assert_eq(*(uint32_t*)ret_entry[0][3].value,grade);
     vg_assert(strcmp(ret_entry[0][1].value, entry[1].value)==0);
     vg_assert_eq(ret_entry[0][1].attr_width,entry[1].attr_width);
-    Block_Print_Rows(stdout, block, ret_entry, num_entries);
+
+    FILE *out = stdout;
+#ifndef PRINT_ASSERTS
+    out = fopen("null/null.txt", "w");
+#endif
+    Block_Print_Rows(out, block, ret_entry, num_entries);
+#ifndef PRINT_ASSERTS
+    fclose(out);
+#endif
 
     for (int i=0; i<num_entries; i++) {
         free(ret_entry[i]);
@@ -93,7 +114,8 @@ vango_test(Insert_Entry) {
 
 vango_test(Delete_Entry) {
     struct Block_Schema schema = Create_Schema_Grades();
-    void *block = Block_Create(1024, 0.7f, 0.5f, schema);
+    Block *block = malloc(1024);
+    Block_Create(block, 1024, 0, 0.7f, 0.5f, schema);
 
     uint32_t persNr = 254950321;
     uint32_t lectureID = 201;
@@ -106,11 +128,11 @@ vango_test(Delete_Entry) {
         (struct Block_Field){.attr_type=BLK_A_INT, .value=&grade},
     };
 
-    Block_Insert_Entry(block, entry);
-    Block_Insert_Entry(block, entry);
-    Block_Insert_Entry(block, entry);
-    Block_Insert_Entry(block, entry);
-    Block_Insert_Entry(block, entry);
+    Block_Insert_Entry(block, entry, &schema);
+    Block_Insert_Entry(block, entry, &schema);
+    Block_Insert_Entry(block, entry, &schema);
+    Block_Insert_Entry(block, entry, &schema);
+    Block_Insert_Entry(block, entry, &schema);
 
     Block_Delete_Entry(block, 3);
 
@@ -121,7 +143,14 @@ vango_test(Delete_Entry) {
     ret_entry[2] = Block_Get(block, 2);
     ret_entry[3] = Block_Get(block, 4);
 
-    Block_Print_Rows(stdout, block, ret_entry, num_entries);
+    FILE *out = stdout;
+#ifndef PRINT_ASSERTS
+    out = fopen("null/null.txt", "w");
+#endif
+    Block_Print_Rows(out, block, ret_entry, num_entries);
+#ifndef PRINT_ASSERTS
+    fclose(out);
+#endif
 
     for (int i=0; i<num_entries; i++) {
         free(ret_entry[i]);
@@ -131,8 +160,17 @@ vango_test(Delete_Entry) {
     Block_Remove(block);
 }
 
+vango_test(MemoryManager_Create) {
+    MManager *manager = MManager_Create(MAX_MEMORY);
+    struct Block_Schema schema = Create_Schema_Grades();
+    char *name = "Grades";
+    MManager_New_Directory(manager, name, schema, 1024, 0.2f, 0.6f);
+    MManager_Free(manager);
+}
+
 vango_test_main(
         vango_test_reg(Create_Block);
         vango_test_reg(Insert_Entry);
         vango_test_reg(Delete_Entry);
+        vango_test_reg(MemoryManager_Create);
 )

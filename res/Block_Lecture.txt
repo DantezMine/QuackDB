@@ -1,0 +1,5 @@
+102, Wahrscheinlichkeit-und-Statistik, 5, 9885
+201, DMDB, 7, 4359
+205, Computer-Networks, 4877
+209, Formal-Methods-and-Functional-Programming, 7392
+213, Systems-Programming, 8392
