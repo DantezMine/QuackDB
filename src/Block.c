@@ -168,7 +168,8 @@ int Block_Insert_Entry(Block *block, struct Block_Field *entry_values, struct Bl
         entry_offs += fixed ? field_size : field_size + 4;
     }
 
-    int entry_size = entry_offs & 0x1 ? entry_offs+1 : entry_offs; // align to even bytes
+    int entry_size = entry_offs & 0x1 ? entry_offs+1 : entry_offs; // align to two bytes
+    entry_size = entry_offs & 0x2 ? entry_offs+2 : entry_offs; // align to four bytes
     
     // find and allocate entry in block
     int free_pos = Find_Free_Entry(block, ENTRY_FIRST(block), entry_size);

@@ -28,14 +28,14 @@ struct Directory {
 struct Buffer_Pool {
     struct Block * pool;
     void * evictor;
-    uint32_t pool_size;
+    uint64_t pool_size;
     uint64_t free_size;
 };
 
 struct Buffer_Pool_Header {
-    uint32_t size;
-    uint32_t count;
+    uint64_t size;
     struct Block_Slot *slot;
+    uint32_t count;
     Block block;
 };
 
@@ -57,7 +57,7 @@ typedef struct {
 MManager * MManager_Create(uint64_t available_memory);
 
 void MManager_New_Directory(MManager *manager, char *identifier, struct Block_Schema schema,
-        uint32_t block_size, float PCTFREE, float PCTUSED);
+        uint64_t block_size, float PCTFREE, float PCTUSED);
 
 void MManager_Free(MManager *manager);
 

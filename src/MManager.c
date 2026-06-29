@@ -5,7 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BPOOL_HEADER(entry)    (struct Buffer_Pool_Header*)((uint32_t*)(entry)-4)
+#define BPOOL_HEADER(entry)    (struct Buffer_Pool_Header*)((uint32_t*)(entry))
+
+#define SIZE_MASK 0xfffffffffffffffc
 
 static void Move_To_Update_List(MManager *manager, struct Directory *dir, int slot_index);
 
@@ -15,7 +17,7 @@ static void Block_To_Buffer(MManager *manager, Block *block, struct Block_Slot *
 
 static void Read_Block(MManager *manager, struct Block_Slot *bslot);
 
-static void * BPool_Allocate(MManager *manager, uint32_t size);
+static void * BPool_Allocate(MManager *manager, uint64_t size);
 
 static void BPool_Evict(MManager *manager);
 
@@ -26,16 +28,16 @@ MManager* MManager_Create(uint64_t available_memory) {
     manager->dirs_size = DIR_DEFAULT_LENGTH;
     manager->bpool.pool = malloc(available_memory);
     manager->bpool.pool_size = available_memory;
-    manager->bpool.free_size = available_memory-8;
+    manager->bpool.free_size = available_memory-20;
     manager->bpool.evictor = manager->bpool.pool;
-    *(uint32_t*)manager->bpool.pool = available_memory-8 | 0x1;
-    *(((uint32_t*)manager->bpool.pool)+1) = 0;
+    struct Buffer_Pool_Header *header = BPOOL_HEADER(manager->bpool.pool);
+    header->size = available_memory-20 | 0x1;
     return manager;
 }
 
 void MManager_New_Directory(MManager *manager, char *identifier, struct Block_Schema schema,
-        uint32_t block_size, float PCTFREE, float PCTUSED) {
-    block_size &= ~0x3; // force four-byte alignment
+        uint64_t block_size, float PCTFREE, float PCTUSED) {
+    block_size &= SIZE_MASK; // force four-byte alignment
     if (manager->dirs_next == manager->dirs_size) {
         manager->dirs_size *= 2;
         manager->dirs = realloc(manager->dirs, manager->dirs_size);
@@ -61,19 +63,13 @@ void MManager_New_Directory(MManager *manager, char *identifier, struct Block_Sc
         .block = block_initial,
         .in_memory = 1,
     };
-    dir->insert_list[dir->insert_next++] = bslot;
-    Block_To_Buffer(manager, block_initial, &dir->insert_list[dir->insert_next-1]);
+    dir->insert_list[dir->insert_next] = bslot;
+    Block_To_Buffer(manager, block_initial, &dir->insert_list[dir->insert_next]);
+    dir->insert_next++;
 }
 
 void MManager_Free(MManager *manager) {
-    // Semi-Recursively frees all associated memory down to each block
     for (int i=0; i<(int)manager->dirs_next; i++) {
-        for (int j=0; j<(int)manager->dirs[i].insert_next; j++) {
-            free(manager->dirs[i].insert_list[j].block);
-        }
-        for (int j=0; j<(int)manager->dirs[i].update_next; j++) {
-            free(manager->dirs[i].update_list[j].block);
-        }
         free(manager->dirs[i].identifier);
         free(manager->dirs[i].insert_list);
         free(manager->dirs[i].update_list);
@@ -152,8 +148,9 @@ static void New_Block(MManager *manager, struct Directory *dir, struct Block_Sch
         .block_id = block->block_id,
         .in_memory=1
     };
-    dir->insert_list[dir->insert_next++] = bslot;
-    Block_To_Buffer(manager, block, &dir->insert_list[dir->insert_next-1]);
+    dir->insert_list[dir->insert_next] = bslot;
+    Block_To_Buffer(manager, block, &dir->insert_list[dir->insert_next]);
+    dir->insert_next++;
     return;
 }
 
@@ -222,49 +219,56 @@ Scanner MManager_Scanner(MManager *manager, struct Directory *dir, uint8_t optio
 */
 static void Block_To_Buffer(MManager *manager, Block *block, struct Block_Slot *bslot) {
     struct Buffer_Pool_Header *header = BPOOL_HEADER(block);
-    header->size = block->block_size & ~0x3; // ensure not dirty, not free
+    header->size = block->block_size & SIZE_MASK; // ensure not dirty, not free
     header->slot = bslot;
     header->count = 1;
 }
 
 
-static void * BPool_Allocate(MManager *manager, uint32_t size) {
+static void * BPool_Allocate(MManager *manager, uint64_t size) {
     uint8_t *evictor = manager->bpool.evictor;
-    uint32_t curr_size = 0;
+    uint64_t curr_size = 0;
     uint8_t *curr_start = NULL;
-    struct Buffer_Pool_Header *header = BPOOL_HEADER(evictor);
+    struct Buffer_Pool_Header *header;
 
     // First pass: Find contiguous space
     while (curr_size < size) {
+        header = BPOOL_HEADER(evictor);
         if (!(header->size & 0x1) && header->count > 0) {
             curr_size = 0;
             curr_start = NULL;
             header->count -= 1;
-        } else if (curr_start) {
-            curr_size  = header->size & ~0x3;
+        } else if (!curr_start) {
+            curr_size  = header->size & SIZE_MASK;
             curr_start = evictor;
         } else {
-            curr_size += header->size & ~0x3 + 16;
+            curr_size += (header->size & SIZE_MASK) + 20;
         }
-        evictor += 16 + header->size & ~0x3;
-        header = BPOOL_HEADER(evictor);
+        evictor += 20 + header->size & SIZE_MASK;
+        if (evictor >= (uint8_t*)manager->bpool.pool + manager->bpool.pool_size) {
+            evictor = (uint8_t*)manager->bpool.pool;
+        }
     }
 
     // Second pass: Evict all blocks in found space
     curr_size = 0;
     evictor = curr_start;
+    header = BPOOL_HEADER(evictor);
     while (curr_size < size) {
         if (!(header->size & 0x1)) BPool_Evict(manager);
-        curr_size += header->size & ~0x3 + 16;
-        evictor += 16 + header->size & ~0x3;
+        curr_size += (header->size & SIZE_MASK) + 20;
+        evictor += 20 + header->size & SIZE_MASK;
+        if (evictor >= (uint8_t*)manager->bpool.pool + manager->bpool.pool_size) {
+            evictor = (uint8_t*)manager->bpool.pool;
+        }
         header = BPOOL_HEADER(evictor);
     }
 
     // Not bothering to coalesce. The algorithm above combines free chunks anyway
     struct Buffer_Pool_Header *curr_header = BPOOL_HEADER(curr_start);
-    struct Buffer_Pool_Header *free_header = BPOOL_HEADER(((uint8_t*)curr_start)+size);
+    struct Buffer_Pool_Header *free_header = BPOOL_HEADER(curr_start+size);
     curr_header->size = size;
-    free_header->size = curr_size-16-size | 0x1;
+    free_header->size = curr_size-20-size | 0x1;
     
     return curr_start;
 }

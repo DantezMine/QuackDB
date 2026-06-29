@@ -12,6 +12,9 @@
 
 #define DOTDOTDOT(text) text[MAX_CELL_WIDTH-1] = '.'; text[MAX_CELL_WIDTH-2] = '.'; text[MAX_CELL_WIDTH-3] = '.';
 
+static double _max(double a, double b);
+static double _min(double a, double b);
+
 static void Max_Column_Widths(int num_rows, int num_cols, struct Cell_Data *rows, struct Head_Cell_Data *head, uint32_t *col_widths);
 
 static void Fields_To_Cells(int num_rows, int num_cols, struct Block_Field **rows, struct Cell_Data *cells, char *text_arena);
@@ -42,7 +45,7 @@ struct Head_Cell_Data* Block_Print_Get_Header_Cells(struct Block_Schema *schema)
             .type_width_len = type_width_len,
         };
 
-        cells[i].width = (int)fmin(fmax(cells[i].attr_name_len, cells[i].type_name_len+type_width_len+2),MAX_CELL_WIDTH);
+        cells[i].width = (int)_min(_max(cells[i].attr_name_len, cells[i].type_name_len+type_width_len+2),MAX_CELL_WIDTH);
         width += cells[i].width;
         cells[i].width_from_start = width;
     }
@@ -73,8 +76,8 @@ void Block_Print_Head(FILE *file, Block *block, struct Head_Cell_Data *head) {
         char* name_pos = out+2*width+pos+3;
         char* type_pos = name_pos + width;
         char* type_end = type_pos+2+cells[i].type_name_len+cells[i].type_width_len;
-        memcpy(name_pos, cells[i].attr_name, fmin(cells[i].attr_name_len, MAX_CELL_WIDTH));
-        memcpy(type_pos, cells[i].type_name, fmin(cells[i].type_name_len, MAX_CELL_WIDTH));
+        memcpy(name_pos, cells[i].attr_name, _min(cells[i].attr_name_len, MAX_CELL_WIDTH));
+        memcpy(type_pos, cells[i].type_name, _min(cells[i].type_name_len, MAX_CELL_WIDTH));
         sprintf(type_pos+cells[i].type_name_len,"(%d)",cells[i].type_width);
         *type_end = ' ';
         if (cells[i].width > MAX_CELL_WIDTH) {
@@ -157,7 +160,7 @@ void Block_Print_Rows(FILE *file, Block *block, struct Block_Field **rows, int n
 
             char* name_pos = out+1*width+pos+3;
             int val_len = strlen(cells[i+row*schema.attr_count].text);
-            memcpy(name_pos, cells[i+row*schema.attr_count].text, fmin(val_len, MAX_CELL_WIDTH));
+            memcpy(name_pos, cells[i+row*schema.attr_count].text, _min(val_len, MAX_CELL_WIDTH));
             if (val_len > MAX_CELL_WIDTH) {
                 DOTDOTDOT(name_pos);
             }
@@ -189,7 +192,7 @@ static void Fields_To_Cells(int num_rows, int num_cols, struct Block_Field **row
             int indx = i*num_cols+j;
             switch (rows[i][j].attr_type) {
                 case BLK_A_INT:
-                    itoa(*(int32_t*)rows[i][j].value, text, 10);
+                    sprintf(text, "%d", *(int32_t*)rows[i][j].value);
                     break;
                 case BLK_A_VARCHAR:
                     strncpy(text, rows[i][j].value, MAX_CELL_WIDTH);
@@ -213,11 +216,20 @@ static void Fields_To_Cells(int num_rows, int num_cols, struct Block_Field **row
 static void Max_Column_Widths(int num_rows, int num_cols, struct Cell_Data *cells,
                               struct Head_Cell_Data *head, uint32_t *col_widths) {
     for (int j=0; j<num_cols; j++) {
-        col_widths[j] = fmax(0, head[j].width);
+        col_widths[j] = _max(0, head[j].width);
     }
     for (int i=0; i<num_rows; i++) {
         for (int j=0; j<num_cols; j++) {
-            col_widths[j] = fmax(col_widths[j], cells[i*num_cols+j].width);
+            col_widths[j] = _max(col_widths[j], cells[i*num_cols+j].width);
         }
     }
+}
+
+
+static double _max(double a, double b) {
+    return a > b ? a : b;
+}
+
+static double _min(double a, double b) {
+    return a < b ? a : b;
 }
