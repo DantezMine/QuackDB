@@ -13,6 +13,8 @@ static void Move_To_Update_List(MManager *manager, struct Directory *dir, int sl
 
 static void New_Block(MManager *manager, struct Directory *dir, struct Block_Schema *schema);
 
+static struct Block_Slot * Handle_Full (MManager *manager, struct Directory *dir, struct Block_Slot *slot, Scanner scanner);
+    
 static void Block_To_Buffer(MManager *manager, Block *block, struct Block_Slot *bslot);
 
 static void Read_Block(MManager *manager, struct Block_Slot *bslot);
@@ -88,6 +90,20 @@ struct Directory * MManager_Get_Directory(MManager *manager, char *identifier) {
     return NULL;
 }
 
+static struct Block_Slot * Handle_Full (MManager *manager, struct Directory *dir, struct Block_Slot *slot, Scanner scanner) {
+    uint8_t full = (slot->block->block_size-slot->block->used) >= slot->block->block_size * slot->block->PCTUSED;
+    if (full) {
+        uint32_t slot_index = 0;
+        for (; slot_index<dir->insert_next; slot_index++) {
+            if (dir->insert_list[slot_index].block_id == slot->block_id) 
+                break;
+        }
+        Move_To_Update_List(manager, dir, slot_index);
+        slot = MManager_Scanner_Next(manager, &scanner);
+    }
+    return slot;
+}
+
 void MManager_Insert_Entries(MManager *manager, char *identifier, struct Block_Field **entries, int num_entries) {
     struct Directory *dir = MManager_Get_Directory(manager, identifier);
     struct Block_Schema schema;
@@ -103,22 +119,15 @@ void MManager_Insert_Entries(MManager *manager, char *identifier, struct Block_F
     struct Block_Slot *slot = MManager_Scanner_Next(manager, &scanner);
     for (int i=0; i<num_entries; i++) {
         while (1) {
-            if (slot == NULL) {
+            if (slot == NULL)
                 slot = MManager_Scanner_New(manager, &scanner, &schema, dir);
-            }
-            if (!slot->in_memory) Read_Block(manager, slot);
+
+            if (!slot->in_memory)
+                Read_Block(manager, slot);
+
             int rid = Block_Insert_Entry(slot->block, entries[i], &schema);
             if (rid >= 0) {
-                uint8_t full = (slot->block->block_size-slot->block->used) < slot->block->block_size * (float)slot->block->PCTFREE;
-                if (full) {
-                    uint32_t slot_index = 0;
-                    for (; slot_index<dir->insert_next; slot_index++) {
-                        if (dir->insert_list[slot_index].block_id == slot->block_id) 
-                            break;
-                    }
-                    Move_To_Update_List(manager, dir, slot_index);
-                    slot = MManager_Scanner_Next(manager, &scanner);
-                }
+                slot = Handle_Full(manager, dir, slot, scanner);
                 break;
             }
             slot = MManager_Scanner_Next(manager, &scanner);
@@ -178,24 +187,24 @@ Scanner MManager_Scanner(MManager *manager, struct Directory *dir, uint8_t optio
 
     uint32_t indx = 0;
     if (options & SCAN_MEMORY_FIRST) { 
-        for (uint32_t i=0; i<dir->update_next; i++) {
+        for (uint32_t i=0; i<dir->insert_next; i++) {
             if (dir->insert_list[i].in_memory)
-                scanner.sequence[indx++] = &dir->update_list[i];
+                scanner.sequence[indx++] = &dir->insert_list[i];
         }
         if (options & SCAN_READ_ONLY) {
-            for (uint32_t i=0; i<dir->insert_next; i++) {
+            for (uint32_t i=0; i<dir->update_next; i++) {
                 if (dir->update_list[i].in_memory)
-                    scanner.sequence[indx++] = &dir->insert_list[i];
+                    scanner.sequence[indx++] = &dir->update_list[i];
             }
         }
-        for (uint32_t i=0; i<dir->update_next; i++) {
+        for (uint32_t i=0; i<dir->insert_next; i++) {
             if (!dir->insert_list[i].in_memory)
-                scanner.sequence[indx++] = &dir->update_list[i];
+                scanner.sequence[indx++] = &dir->insert_list[i];
         }
         if (options & SCAN_READ_ONLY) {
-            for (uint32_t i=0; i<dir->insert_next; i++) {
+            for (uint32_t i=0; i<dir->update_next; i++) {
                 if (!dir->update_list[i].in_memory)
-                    scanner.sequence[indx++] = &dir->insert_list[i];
+                    scanner.sequence[indx++] = &dir->update_list[i];
             }
         }
     } else {
@@ -294,13 +303,12 @@ struct Block_Slot * MManager_Scanner_Next(MManager *manager, Scanner *scanner) {
     if (scanner->current == scanner->num) {
         return NULL;
     }
-    struct Block_Slot *bslot = scanner->sequence[scanner->current++];
-    if (scanner->sequence[scanner->current]->in_memory) {
-        return bslot;
-    } else {
+    struct Block_Slot *bslot = scanner->sequence[scanner->current];
+    if (!scanner->sequence[scanner->current]->in_memory) {
         Read_Block(manager, bslot);
-        return bslot;
     }
+    scanner->current++;
+    return bslot;
 }
 
 

@@ -8,12 +8,11 @@
 typedef struct Block{
     uint32_t block_size;
     uint32_t block_id;
-    uint32_t PCTFREE;
-    uint32_t PCTUSED;
+    float PCTFREE;
+    float PCTUSED;
     uint32_t used;
     uint32_t table_schema;
     uint32_t table_row;
-    uint8_t data[];
 } Block;
 
 enum Block_t {

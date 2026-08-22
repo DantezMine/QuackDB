@@ -46,12 +46,12 @@ Block* Block_Create(Block *block, uint32_t block_size, uint32_t block_id, float 
 
     block->block_size = block_size;
     block->block_id = 0;
-    block->PCTFREE = TO_W(PCTFREE);
-    block->PCTUSED = TO_W(PCTUSED);
+    block->PCTFREE = PCTFREE;
+    block->PCTUSED = PCTUSED;
     block->used = 0;
 
     // create directories table
-    uint32_t table_dir    = 20;
+    uint32_t table_dir    = sizeof(Block);
     // + 8 for table offsets and + 4 for attribute count
     uint32_t table_schema = table_dir+12;
 
@@ -121,7 +121,7 @@ struct Block_Schema Block_Get_Schema(Block *block) {
         .attr_count = attr_count,
         .attr_types = schema_arena,
         .attr_names = (void*)((char*)schema_arena+attr_count*4),
-        .var_sizes = (void*)((char*)schema_arena+attr_count*8),
+        .var_sizes = (void*)((char*)schema_arena+attr_count*12),
     };
 
     int pos = table_schema;
@@ -232,6 +232,7 @@ static int Allocate_Entry(Block *block, uint32_t entry, uint32_t target_size) {
         uint32_t split_size = free_size-target_size-8;
         entry_pos = free_pos + split_size + 8;
         entry_size = target_size;
+        block->used += entry_size+8;
         WRITE_W(block, free_pos-4,  split_size | 0x1);
         WRITE_W(block, entry_pos-8, split_size | 0x1);
         WRITE_W(block, 12, BLOCK_USED(block)+entry_size);
@@ -243,6 +244,7 @@ static int Allocate_Entry(Block *block, uint32_t entry, uint32_t target_size) {
         }
         entry_pos = free_pos;
         entry_size = free_size;
+        block->used += free_size+8;
         WRITE_W(block, 12, BLOCK_USED(block)+entry_size+8);
     }
     WRITE_W(block, entry_pos-4,          entry_size & ~0x1);

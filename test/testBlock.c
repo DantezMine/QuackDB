@@ -9,9 +9,9 @@
 #define VANGO_TEST_ROOT
 #include <vangotest/casserts.h>
 
-#define MAX_MEMORY 4294967296
+#define MAX_MEMORY 0x1000 // 2^12=4096
 
-// #define PRINT_ASSERTS
+#define PRINT_ASSERTS
 
 #ifdef PRINT_ASSERTS
 #define PRINT(...) (printf(__VA_ARGS__))
@@ -168,9 +168,85 @@ vango_test(MemoryManager_Create) {
     MManager_Free(manager);
 }
 
+vango_test(MemoryManager_Insert) {
+    MManager *manager = MManager_Create(MAX_MEMORY);
+    struct Block_Schema schema = Create_Schema_Grades();
+    char *table_name = "Grades";
+    MManager_New_Directory(manager, table_name, schema, 1024, 0.2f, 0.6f);
+
+    uint32_t persNr = 254950321;
+    uint32_t lectureID = 201;
+    uint32_t grade = 5;
+    char *name = "Loeli";
+    struct Block_Field entry[4] = {
+        (struct Block_Field){.attr_type=BLK_A_INT, .value=&persNr},
+        (struct Block_Field){.attr_type=BLK_A_VARCHAR, .value=name, .attr_width=strlen(name)+1},
+        (struct Block_Field){.attr_type=BLK_A_INT, .value=&lectureID},
+        (struct Block_Field){.attr_type=BLK_A_INT, .value=&grade},
+    };
+
+    struct Block_Field *entries[3] = {
+        entry, entry, entry
+    };
+
+    MManager_Insert_Entries(manager, table_name, entries, 3);
+
+    Scanner scanner = MManager_Scanner(manager, MManager_Get_Directory(manager, table_name), SCAN_READ_ONLY | SCAN_MEMORY_FIRST);
+    Block *block = MManager_Scanner_Next(manager, &scanner)->block;
+    struct Block_Field *ret_entry = Block_Get(block, 2);
+    PRINT("Actual: %d, Expected: %d\n",*(uint32_t*)ret_entry[0].value,persNr);
+    vg_assert_eq(*(uint32_t*)ret_entry[0].value,persNr);
+    vg_assert_eq(*(uint32_t*)ret_entry[2].value,lectureID);
+    vg_assert_eq(*(uint32_t*)ret_entry[3].value,grade);
+    vg_assert(strcmp(ret_entry[1].value, entry[1].value)==0);
+    vg_assert_eq(ret_entry[1].attr_width,entry[1].attr_width);
+
+    MManager_Free(manager);
+}
+
+
+vango_test(MemoryManager_Insert_Large) {
+    MManager *manager = MManager_Create(MAX_MEMORY);
+    struct Block_Schema schema = Create_Schema_Grades();
+    char *table_name = "Grades";
+    MManager_New_Directory(manager, table_name, schema, 1024, 0.2f, 0.6f);
+
+    uint32_t persNr = 254950321;
+    uint32_t lectureID = 201;
+    uint32_t grade = 5;
+    char *name = "Loeli";
+    struct Block_Field entry[4] = {
+        (struct Block_Field){.attr_type=BLK_A_INT, .value=&persNr},
+        (struct Block_Field){.attr_type=BLK_A_VARCHAR, .value=name, .attr_width=strlen(name)+1},
+        (struct Block_Field){.attr_type=BLK_A_INT, .value=&lectureID},
+        (struct Block_Field){.attr_type=BLK_A_INT, .value=&grade},
+    };
+
+    struct Block_Field *entries[300];
+    for (int i=0; i<300; i++) {
+        entries[i] = entry;
+    }
+
+    MManager_Insert_Entries(manager, table_name, entries, 126);
+
+    Scanner scanner = MManager_Scanner(manager, MManager_Get_Directory(manager, table_name), SCAN_READ_ONLY | SCAN_MEMORY_FIRST);
+    Block *block = MManager_Scanner_Next(manager, &scanner)->block;
+    struct Block_Field *ret_entry = Block_Get(block, 10);
+    PRINT("Actual: %d, Expected: %d\n",*(uint32_t*)ret_entry[0].value,persNr);
+    vg_assert_eq(*(uint32_t*)ret_entry[0].value,persNr);
+    vg_assert_eq(*(uint32_t*)ret_entry[2].value,lectureID);
+    vg_assert_eq(*(uint32_t*)ret_entry[3].value,grade);
+    vg_assert(strcmp(ret_entry[1].value, entry[1].value)==0);
+    vg_assert_eq(ret_entry[1].attr_width,entry[1].attr_width);
+
+    MManager_Free(manager);
+}
+
 vango_test_main(
         vango_test_reg(Create_Block);
         vango_test_reg(Insert_Entry);
         vango_test_reg(Delete_Entry);
         vango_test_reg(MemoryManager_Create);
+        vango_test_reg(MemoryManager_Insert);
+        vango_test_reg(MemoryManager_Insert_Large);
 )
