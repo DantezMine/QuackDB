@@ -1,3 +1,4 @@
 .clangd
 ./compile_flags.txt
-./bin
+./bin/
+./null/

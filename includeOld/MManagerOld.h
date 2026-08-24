@@ -1,7 +1,7 @@
-#ifndef H_MMANAGER
-#define H_MMANAGER
+#ifndef H_MMANAGER_OLD
+#define H_MMANAGER_OLD
 
-#include "Block.h"
+#include "BlockOld.h"
 #include <stdint.h>
 
 #define DIR_DEFAULT_LENGTH 16

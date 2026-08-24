@@ -1,7 +1,7 @@
-#ifndef H_BLOCKPRINT
-#define H_BLOCKPRINT
+#ifndef H_BLOCKPRINT_OLD
+#define H_BLOCKPRINT_OLD
 
-#include "Block.h"
+#include "BlockOld.h"
 #include <stdio.h>
 
 struct Head_Cell_Data{

@@ -2,95 +2,55 @@
 #define H_BLOCK
 
 #include <stdint.h>
+#include <stdbool.h>
+#include <stdio.h>
 
 #define MAX_ATTRIBUTE_NAME 100
 
 typedef struct Block{
     uint32_t block_size;
-    uint32_t block_id;
-    float PCTFREE;
-    float PCTUSED;
-    uint32_t used;
-    uint32_t table_schema;
-    uint32_t table_row;
+    uint32_t block_ID;
+    uint8_t dirty_flag;
+    uint8_t unused[3];
+    uint8_t data[];
 } Block;
 
-enum Block_t {
-    BLK_T_TABLE,
-};
-
-enum Block_Attribute_t {
-    BLK_A_INT,
-    BLK_A_VARCHAR,
-};
-
-struct Block_Field {
-    enum Block_Attribute_t attr_type;
-    uint32_t attr_width;
-    void *value;
-};
-
-struct Block_Schema {
-    int attr_count;
-    void *arena;
-    enum Block_Attribute_t *attr_types;
-    int *var_sizes; // ignored for fixed-width attributes.
-    char **attr_names;
-};
-
-
-static const char* Block_Attribute_t_Name[] = {
-    "INT",
-    "VARCHAR",
-};
-
-static const int Block_Attribute_t_Width[] = {
-    4,
-    -1,
-};
-
-Block* Block_Create(Block *block, uint32_t block_size, uint32_t block_id, float PCTFREE, float PCTUSED,
-                    struct Block_Schema);
-
-/* Inserts the given entry into the block pointed to
- * with the address and returns the offset into the Row table.
- * Expects the entry to contain the same number of attributes
- * as declared in block creation.
-*/
-int Block_Insert_Entry(Block *block, struct Block_Field *entry_values, struct Block_Schema *schema);
 
 /*
- * Return array of entries. Values are stored in the same memory 
- * region as the returned pointer. Must free the returned pointer
- * after use.
-*/ 
-struct Block_Field* Block_Get(Block *block, int row_index);
-
-void Block_Delete_Entry(Block *block, int row_index);
+ * Allocates memory for the block.
+*/
+void Block_Initialize(Block *block, uint32_t block_size, uint32_t block_id);
 
 /*
- * Not Implemented!
- * Write the block to storage (file),
- * free from memory.
+ * Write the block to file.
+ * Returns false in case of error.
 */
-void Block_Write(Block *block);
+bool Block_Write_To_File(Block *block, FILE *fd);
 
 /*
- * Not Implemented!
- * Read the block from storage (file)
- * into memory pointed to by block.
+ * Read the block from file to block in memory.
+ * Block pointer must have enough space.
+ * Should only be called by the memory manager.
 */
-void Block_Read(Block *block, uint32_t id, uint32_t size);
+bool Block_Read_From_File(Block *block, FILE *fd);
 
-uint32_t Block_Read_Size(uint32_t id);
+uint32_t Block_Get_Size_From_File(FILE *fd);
 
-void Block_Remove(Block *block);
+FILE *Block_Get_File(uint32_t block_ID, const char *dir, const char *mode);
 
-int Is_Attr_Width_Fixed(enum Block_Attribute_t attr_type);
+uint32_t Block_Get_Size(Block *block);
+
+uint32_t Block_Get_ID(Block *block);
+
+bool Block_Is_Dirty(Block *block);
+
+void *Block_Get_Data(Block *block);
 
 /*
- * Must free the arena in the returned struct when done.
+ * Deletes the block from persistent storage (if it exists).
 */
-struct Block_Schema Block_Get_Schema(Block *block);
+bool Block_Delete_File(uint32_t block_ID, const char *dir);
+
+void Block_Free(Block *block);
 
 #endif
