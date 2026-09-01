@@ -5,13 +5,15 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#define MAX_ATTRIBUTE_NAME 100
-
-typedef struct Block{
+typedef struct {
     uint32_t block_size;
     uint32_t block_ID;
     uint8_t dirty_flag;
     uint8_t unused[3];
+} Block_Header;
+
+typedef struct Block{
+    Block_Header header;
     uint8_t data[];
 } Block;
 

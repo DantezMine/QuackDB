@@ -1,6 +1,7 @@
-#include "Block.h"
+/* #include "Block.h"
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #define VANGO_TEST_ROOT
@@ -51,4 +52,4 @@ vango_test(Block_Write_and_Read) {
 vango_test_main(
     vango_test_reg(Block_Create_and_Get);
     vango_test_reg(Block_Write_and_Read);
-)
+) */

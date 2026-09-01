@@ -8,19 +8,19 @@ static void Block_To_Path(uint32_t block_ID, char *fname, size_t buf_len,
         const char *dir);
 
 void Block_Initialize(Block *block, uint32_t block_size, uint32_t block_id) {
-    block->block_size = block_size & ~0x3; // force four byte alignment
-    block->block_ID = block_id;
-    block->dirty_flag = 0;
+    block->header.block_size = block_size & ~0x3; // force four byte alignment
+    block->header.block_ID = block_id;
+    block->header.dirty_flag = 0;
     return;
 }
 
 
 uint32_t Block_Get_Size(Block *block) {
-    return block->block_size;
+    return block->header.block_size;
 }
 
 uint32_t Block_Get_ID(Block *block) {
-    return block->block_ID;
+    return block->header.block_ID;
 }
 
 void *Block_Get_Data(Block *block) {
@@ -28,7 +28,7 @@ void *Block_Get_Data(Block *block) {
 }
 
 bool Block_Is_Dirty(Block *block) {
-    return block->dirty_flag & 0x1;
+    return block->header.dirty_flag & 0x1;
 }
 
 bool Block_Write_To_File(Block *block, FILE *fd) { 
