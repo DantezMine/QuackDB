@@ -40,6 +40,8 @@ uint32_t Block_Get_Size_From_File(FILE *fd);
 
 FILE *Block_Get_File(uint32_t block_ID, const char *dir, const char *mode);
 
+void Block_Close_File(FILE *fd);
+
 uint32_t Block_Get_Size(Block *block);
 
 uint32_t Block_Get_ID(Block *block);
@@ -52,7 +54,5 @@ void *Block_Get_Data(Block *block);
  * Deletes the block from persistent storage (if it exists).
 */
 bool Block_Delete_File(uint32_t block_ID, const char *dir);
-
-void Block_Free(Block *block);
 
 #endif

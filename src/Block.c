@@ -64,10 +64,6 @@ bool Block_Delete_File(uint32_t block_ID, const char *dir) {
     return true;
 }
 
-void Block_Free(Block *block) {
-    free(block);
-}
-
 uint32_t Block_Get_Size_From_File(FILE *fd) {
     // Assumes meaningful support for SEEK_END
     fseek(fd, 0, SEEK_END);
@@ -87,6 +83,12 @@ FILE *Block_Get_File(uint32_t block_ID, const char *dir, const char *mode) {
     }
     return fd;
 }
+
+
+void Block_Close_File(FILE *fd) {
+    fclose(fd);
+}
+
 
 bool Block_Read_From_File(Block *block, FILE *fd) {
     uint32_t size = Block_Get_Size_From_File(fd);

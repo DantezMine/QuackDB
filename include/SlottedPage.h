@@ -25,14 +25,30 @@ typedef union {
     uint64_t rid;
 } RID;
 
+typedef struct {
+    union {
+        struct {
+            const void *entry;
+            const uint32_t size;
+        } Entry;
+        RID reference;
+    };
+    bool indirect;
+} Page_Entry;
+
+
+void Slotted_Page_Initialize(Slotted_Page *page, uint32_t size, uint32_t block_id, float PCTFREE, float PCTUSED);
+
 /*
  * Attempts to insert an entry into the page. It
  * is up to the caller to ensure that the page
  * can fit the entry. In case the entry cannot 
  * be inserted, an index of 0 is returned.
 */
-RID Slotted_Page_Insert_Entry(Slotted_Page *page, void *entry, 
+RID Slotted_Page_Insert_Entry(Slotted_Page *page, const void *entry, 
         uint32_t entry_size);
+
+Page_Entry Slotted_Page_Get_Entry(Slotted_Page *page, RID rid);
 
 /*
  * Attempts to update an entry in the page. In 
@@ -42,10 +58,10 @@ RID Slotted_Page_Insert_Entry(Slotted_Page *page, void *entry,
  * the entry using the corresponding method.
 */
 bool Slotted_Page_Update_Entry(Slotted_Page *page, uint32_t indx, 
-        void *entry, uint32_t entry_size);
+        const void *data, uint32_t data_size);
 
 bool Slotted_Page_Update_Entry_Next(Slotted_Page *page, uint32_t indx, 
-        void *entry, uint32_t entry_size, Slotted_Page *page_next);
+        const void *data, uint32_t data_size, Slotted_Page *page_next);
 
 void Slotted_Page_Remove_Entry(Slotted_Page *page, uint32_t indx);
 

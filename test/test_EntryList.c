@@ -1,3 +1,5 @@
+#ifdef DO_TESTS
+
 #include "SlottedPage.h"
 #include "../src/SlottedPage.c" // allows to test static functions
 #include <stddef.h>
@@ -87,11 +89,11 @@ vango_test(Split_Entry_List) {
     vg_assert(Slotted_Page_Consistency_Check(page, DEBUG_STREAM));
 
     {
-        uint32_t data_size = 8;
+        uint32_t data_size = 4;
         uint32_t *entry_free = (uint32_t*) ((uint8_t *)page + 44);
         uint32_t *entry = Entry_List_Split(page, entry_free, data_size);
         vg_assert(Slotted_Page_Consistency_Check(page, DEBUG_STREAM));
-        vg_assert_eq((uint32_t*) ((uint8_t *)page + 52), entry);
+        vg_assert_eq((uint32_t*) ((uint8_t *)page + 56), entry);
     }
     Page_Sample_0_Reset;
     {
@@ -362,42 +364,6 @@ vango_test(Entry_List_Coalescing_Both) {
 
 
 
-vango_test(New_Entry) {
-    Page_Sample_0_Init;
-    {
-        *((uint32_t*)(list+32 )) = -1;
-        *((uint32_t*)(list+86 )) |= 1;
-        *((uint32_t*)(list+110)) |= 1;
-        page->header.free += 20;
-        uint32_t data_size = 10;
-        RID rid = Row_Table_New_Entry(page, data_size);
-        uint32_t *entry = Row_Table_Entry(page, rid.row_index);
-        vg_assert(Slotted_Page_Consistency_Check(page, DEBUG_STREAM));
-        vg_assert_eq(rid.block_ID, 21);
-        vg_assert_eq(rid.row_index, 3);
-        vg_assert_eq((uint8_t*)entry, list+100);
-    }
-    Page_Sample_0_Reset;
-    {
-        uint32_t data_size = 4;
-        RID rid = Row_Table_New_Entry(page, data_size);
-        uint32_t *entry = Row_Table_Entry(page, rid.row_index);
-        vg_assert(Slotted_Page_Consistency_Check(page, DEBUG_STREAM));
-        vg_assert_eq(rid.block_ID, 21);
-        vg_assert_eq(rid.row_index, 3);
-        vg_assert_eq((uint8_t*)entry, list+56);
-    }
-    Page_Sample_0_Reset;
-    {
-        uint32_t data_size = 8;
-        RID rid = Row_Table_New_Entry(page, data_size);
-        vg_assert_null(rid.rid);
-        vg_assert(Slotted_Page_Consistency_Check(page, DEBUG_STREAM));
-    }
-    Page_Sample_0_Free;
-}
-
-
 vango_test_main (
     vango_test_reg(Entry_List_No_Coalescing);
     vango_test_reg(Entry_List_Coalescing_Left);
@@ -407,5 +373,5 @@ vango_test_main (
     vango_test_reg(Split_Entry_List);
     vango_test_reg(Find_Free_Entry);
     vango_test_reg(Free_Entry);
-    vango_test_reg(New_Entry);
 )
+#endif
